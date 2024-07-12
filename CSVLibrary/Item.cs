@@ -9,16 +9,17 @@ namespace CSVLibrary
 {
     internal class Item
     {
-        [DisplayName("時間")]
         public string dateTime { get; set; }
-
-        [DisplayName("金額")]
         public int price { get; set; }
 
-        //[DisplayName("類型")]
+        public string reason { get; set; }
+        //public string dateTime { get; set; }
+        //public int price { get; set; }
         //public string category { get; set; }
-        //[DisplayName("消費目的")]
         //public string reason { get; set; }
-        public string account { get; set; }
+        //public string account { get; set; }
+
+        //public string picPath1 { get; set; }
+        //public string picPath2 { get; set; }
     }
 }

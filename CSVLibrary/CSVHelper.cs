@@ -13,18 +13,12 @@ namespace CSVLibrary
     {
         public static List<T> Read<T>(string path) where T : new()
         {
-            var fileNames = path.Split('\\').ToList();
-            string fileName = fileNames.Last();
-            fileNames.Remove(fileNames.Last());
-            string directoryPath = string.Join("\\", fileNames);
-            if (!Directory.Exists(directoryPath))
+
+
+            bool validatePath = ValidatePath(path);
+            if(!validatePath)
             {
                 throw new Exception("檔案夾不存在!");
-            }
-            var temp = Path.GetExtension(fileName);
-            if (Path.GetExtension(fileName) != ".csv")
-            {
-                throw new Exception("必須是csv檔案");
             }
 
             StreamReader sr = new StreamReader(path, Encoding.UTF8);
@@ -48,14 +42,30 @@ namespace CSVLibrary
                     continue;
                 }
             }
+
+            
+
+            if(dict.Count == 0)
+            {
+                for(int i = 0; i < fieldTyps.Length; i++)
+                {
+                    dict[fieldTyps[i]] = i;
+                }
+            }
+
             line = sr.ReadLine();
             while (line != null)
             {
                 var fields = line.Split(',');
                 T item = new T();
+
                 foreach (var info in dict.Keys)
                 {
                     int idx = dict[info];
+                    if(fields.Length <= idx)
+                    {
+                        break;
+                    }
                     info.SetValue(item, Convert.ChangeType(fields[idx], info.PropertyType));
                 }
 
@@ -68,7 +78,54 @@ namespace CSVLibrary
             return list;
         }
 
-        public static void Write<T>(List<T> list, string path, bool hasHeader = true) where T : new()
+        private static (bool,HeaderCategory) CheckHasHeader<T>(StreamReader sr, out string header)
+        {
+            // 看第一筆資料是不是標題
+            
+            var firstLine = sr.ReadLine();
+            var fields = typeof(T).GetProperties();
+            header = String.Empty;
+            bool hasHeader = false;
+            HeaderCategory type = HeaderCategory.NoHeader;
+
+            // 製作標題傳給 header
+            foreach (var field in fields)
+            {
+                string displayName = field.GetCustomAttribute<DisplayNameAttribute>()?.DisplayName;
+                if (displayName == null)
+                {
+                    header += $"{field.Name},";
+                }
+                else
+                {
+                    header += $"{displayName},";
+                }
+            }
+            header = header.TrimEnd(',');
+            if (firstLine == null)
+            {
+                type = HeaderCategory.EmptyFile;
+            }
+            else
+            {
+                var names = firstLine.Split(',');
+                if (names[0] == fields[0].Name || names[0] == fields[0].GetCustomAttribute<DisplayNameAttribute>()?.DisplayName)
+                {
+                    hasHeader = true;
+                    type = HeaderCategory.HasHeader;
+                }
+
+            }
+
+
+
+            sr.Close();
+            return (hasHeader, type);
+
+
+        }
+
+        public static void Write<T>(List<T> list, string path, bool addHeader = true) where T : new()
         {
             var fileNames = path.Split('\\').ToList();
             string fileName = fileNames.Last();
@@ -83,55 +140,89 @@ namespace CSVLibrary
                 throw new Exception("必須是csv檔案");
             }
 
+            
+
             // 看第一筆資料是不是標題
             StreamReader sr = new StreamReader(path, Encoding.UTF8);
-            var firstLine = sr.ReadLine();
-            var names = firstLine.Split(',');
-            var fields = list[0].GetType().GetProperties();
-            if (names[0] == fields[0].Name || names[0] == fields[0].GetCustomAttribute<DisplayNameAttribute>()?.DisplayName)
+            var (hasHeader, type) = CheckHasHeader<T>(sr, out string headerStr);
+
+            //StreamWriter sw = new StreamWriter(path, false, Encoding.UTF8);
+            
+            
+            if(type == HeaderCategory.EmptyFile)
             {
-                hasHeader = false; // 如果本來就有標題就不用把標題加入檔案
-            }
-            sr.Close();
-
-            StreamWriter sw = new StreamWriter(path , true, Encoding.UTF8);
-
-            if(hasHeader)
-            {
-                string headerStr = String.Empty;
-
-                foreach(var field in fields)
-                {
-                    string displayName = field.GetCustomAttribute<DisplayNameAttribute>()?.DisplayName;
-                    if(displayName == null)
-                    {
-                        headerStr += $"{field.Name},";
-                    }
-                    headerStr += $"{displayName},";
-                }
-                headerStr = headerStr.TrimEnd(',');
+                StreamWriter sw = new StreamWriter(path, false, Encoding.UTF8);
                 sw.WriteLine(headerStr);
-
+                WriteData<T>(sw, list);
+                sw.Close();
             }
-
-            foreach (T i in list)
+            if(type == HeaderCategory.HasHeader)
             {
-                string dataStr = String.Empty;
-                foreach(var field in fields)
-                {
-                    dataStr += $"{field.GetValue(i)},";
-                }
-
-                dataStr = dataStr.TrimEnd(',');
-                
-                sw.WriteLine(dataStr);
+                StreamWriter sw = new StreamWriter(path, true, Encoding.UTF8);
+                WriteData<T>(sw, list);
+                sw.Close();
             }
-            sw.Close();
+            if(type == HeaderCategory.NoHeader)
+            {
+                string originalData = ReadData(path);
+                StreamWriter sw = new StreamWriter(path, false, Encoding.UTF8);
+                sw.WriteLine(headerStr);
+                sw.Write(originalData);
+                WriteData<T>(sw, list);
+                sw.Close() ;
+            }
+
+
+            
         }
 
         public static void Write<T>(T item, string path, bool hasHeader = true) where T:new()
         {
             Write<T>(new List<T> { item }, path, hasHeader);
+        }
+
+        private static bool ValidatePath(string path)
+        {
+            var fileNames = path.Split('\\').ToList();
+            string fileName = fileNames.Last();
+            fileNames.Remove(fileNames.Last());
+            string directoryPath = string.Join("\\", fileNames);
+            if (!Directory.Exists(directoryPath))
+            {
+                return false;
+            }
+            var temp = Path.GetExtension(fileName);
+            if (Path.GetExtension(fileName) != ".csv")
+            {
+                throw new Exception("必須是csv檔案");
+            }
+            return true;
+        }
+
+        private static string ReadData(string path)
+        {
+            StreamReader sr = new StreamReader(path, Encoding.UTF8);
+            string res = sr.ReadToEnd();
+            sr.Close();
+            return res;
+        }
+
+        private static void WriteData<T>(StreamWriter sw, List<T> list)
+        {
+            var fields = typeof(T).GetProperties();
+            foreach (T i in list)
+            {
+                string dataStr = String.Empty;
+                foreach (var field in fields)
+                {
+                    dataStr += $"{field.GetValue(i)},";
+                }
+
+                dataStr = dataStr.TrimEnd(',');
+
+                sw.WriteLine(dataStr);
+            }
+            sw.Close();
         }
     }
 }
